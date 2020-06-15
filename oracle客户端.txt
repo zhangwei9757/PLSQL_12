@@ -12,3 +12,7 @@
   SIMPLIFIED CHINESE_CHINA.ZHS16GBK
 
   path追加：%ORACLE_HOME%;
+
+
+
+参考文章: https://blog.csdn.net/weinichendian/article/details/51735443
