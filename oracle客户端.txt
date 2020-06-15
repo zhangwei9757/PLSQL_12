@@ -1,0 +1,14 @@
+1. 先安装plsql
+2. 解压客户端包
+3. 配置环境变量
+  ORACLE_HOME
+  D:\DevInstall\instantclient_12_2
+
+
+  TNS_ADMIN
+  D:\DevInstall\instantclient_12_2\NETWORK\ADMIN
+
+  NLS_LANG
+  SIMPLIFIED CHINESE_CHINA.ZHS16GBK
+
+  path追加：%ORACLE_HOME%;
