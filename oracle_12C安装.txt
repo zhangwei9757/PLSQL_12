@@ -1,0 +1,406 @@
+安装资料：https://www.cnblogs.com/Jace06/p/8423189.html
+
+CentOS7静默安装oracle12c
+操作系统：
+官网下载镜像CentOS-7-x86_64-Minimal-1708.iso。安装步骤略。
+
+[root@oracle01 ~]# uname -m
+x86_64
+[root@oracle01 ~]# cat /etc/redhat-release 
+CentOS Linux release 7.4.1708 (Core)
+
+
+
+安装前配置：
+1. 修改主机名
+[root@oracle01 ~]#sed -i "s/HOSTNAME=localhost.localdomain/HOSTNAME=oracle01.cn/" /etc/sysconfig/network
+
+2.修改hosts文件
+[root@oracle01 ~]# vim /etc/hosts 
+192.168.147.139 oracle01.cn
+
+2.关闭selinux
+[root@oracle01 ~]#sed -i "s/SELINUX=enforcing/SELINUX=disabled/" /etc/selinux/config
+[root@oracle01 ~]#setenforce 0
+
+yum安装必要安装包：
+
+[root@oracle01 ~]#yum -y install binutils compat-libcap1 compat-libstdc++-33 compat-libstdc++-33*i686 compat-libstdc++-33*.devel compat-libstdc++-33 compat-libstdc++-33*.devel gcc gcc-c++ glibc glibc*.i686 glibc-devel glibc-devel*.i686 ksh libaio libaio*.i686 libaio-devel libaio-devel*.devel libgcc libgcc*.i686 libstdc++ libstdc++*.i686 libstdc++-devel libstdc++-devel*.devel libXi libXi*.i686 libXtst libXtst*.i686 make sysstat unixODBC unixODBC*.i686 unixODBC-devel unixODBC-devel*.i686
+[root@oracle01 ~]#rpm -q binutils compat-libcap1 compat-libstdc++-33 gcc gcc-c++ glibc glibc-devel ksh libaio libaio-devel libgcc libstdc++ libstdc++-devel libXi libXtst make sysstat unixODBC unixODBC-devel
+
+
+1.创建oinstall和dba组
+[root@oracle01 ~]#/usr/sbin/groupadd oinstall
+[root@oracle01 ~]#/usr/sbin/groupadd dba
+
+2.创建oracle用户
+[root@oracle01 ~]#/usr/sbin/useradd -g oinstall -G dba oracle
+
+3.设置oracle密码【密码:Tpl!f81qsxas】
+[root@oracle01 ~]#passwd oracle
+
+4.查看创建结果
+[root@docker ~]# id oracle
+uid=1001(oracle) gid=1001(oinstall) groups=1001(oinstall),1002(dba)
+
+修改内核参数
+
+
+[root@oracle01 ~]# vim /etc/sysctl.conf 
+
+# sysctl settings are defined through files in
+# /usr/lib/sysctl.d/, /run/sysctl.d/, and /etc/sysctl.d/.
+#
+# Vendors settings live in /usr/lib/sysctl.d/.
+# To override a whole file, create a new file with the same in
+# /etc/sysctl.d/ and put new settings there. To override
+# only specific settings, add a file with a lexically later
+# name in /etc/sysctl.d/ and put new settings there.
+#
+# For more information, see sysctl.conf(5) and sysctl.d(5).
+fs.aio-max-nr = 1048576
+fs.file-max = 6815744
+kernel.shmall = 2097152
+kernel.shmmax = 10307921510   #最低：536870912，最大值：比物理内存小1个字节的值，建议超过物理内存的一半
+kernel.shmmni = 4096
+kernel.sem = 250 32000 100 128
+net.ipv4.ip_local_port_range = 9000 65500
+net.core.rmem_default = 262144
+net.core.rmem_max = 4194304
+net.core.wmem_default = 262144
+net.core.wmem_max = 1048576
+
+让配置生效
+[root@oracle01 ~]#/sbin/sysctl -p
+
+修改用户限制
+[root@oracle01 ~]#vim  /etc/security/limits.conf
+
+#在末尾添加
+oracle soft nproc 2047
+oracle hard nproc 16384
+oracle soft nofile 1024
+oracle hard nofile 65536
+oracle soft stack 10240
+oracle hard stack 10240
+
+在/etc/pam.d/login 文件中，使用文本编辑器或vi命令增加或修改以下内容
+
+session required /lib64/security/pam_limits.so
+session required pam_limits.so
+
+在/etc/profile 文件中，使用文本编辑器或vi命令增加或修改以下内容
+
+if [ $USER = "oracle" ]; then
+   if [ $SHELL = "/bin/ksh" ]; then
+       ulimit -p 16384
+       ulimit -n 65536
+    else
+       ulimit -u 16384 -n 65536
+   fi
+fi
+
+[root@oracle01 ~]#source /etc/profile    #使配置生效
+
+创建相关目录
+[root@oracle01 ~]#mkdir -p /u01/app/
+[root@oracle01 ~]#chown -R oracle:oinstall /u01/app/
+[root@oracle01 ~]#chmod -R 775 /u01/app/
+
+把oracle软件解压后共享，挂载 【无视，直接解压即可】
+[root@oracle01 ~]# su - oracle
+[oracle@oracle01 ~]$ mkdir oradb    #新建目录用于挂载
+[root@oracle01 ~]#mount -t cifs -o username=administrator,password=12345678,vers=2.1,sec=krb5 //132.122.239.148/Oracle12CLinuxX64 /home/oracle/oradb
+[root@oracle01 ~]# ls /home/oracle/oradb
+database
+
+复制响应模板
+[oracle@oracle01 ~]$mkdir etc
+[oracle@oracle01 ~]$cp  /home/oracle/oradb/database/response/* /home/oracle/etc/
+[oracle@oracle01 ~]$ls etc
+dbca.rsp  db_install.rsp  netca.rsp
+
+设置权限
+[oracle@oracle01 ~]$su - root 
+[root@oracle01 ~]#chmod 700 /home/oracle/etc/*.rsp
+ 
+
+静默安装配置
+
+su - oracle
+修改安装Oracle软件的响应文件/home/oracle/etc/db_install.rsp
+
+oracle.install.option=INSTALL_DB_SWONLY     // 安装类型
+ORACLE_HOSTNAME=oracle01      				// 主机名称（hostname查询）
+UNIX_GROUP_NAME=oinstall     				// 安装组
+INVENTORY_LOCATION=/u01/app/oraInventory    //INVENTORY目录（不填就是默认值）
+SELECTED_LANGUAGES=en,zh_CN,zh_TW 			// 选择语言
+ORACLE_HOME=/u01/app/oracle/product/12/db_1 //oracle_home
+ORACLE_BASE=/u01/app/oracle     			//oracle_base
+oracle.install.db.InstallEdition=EE 　　　　// oracle版本
+oracle.install.db.isCustomInstall=false 　　//自定义安装，否，使用默认组件
+oracle.install.db.DBA_GROUP=dba 			// dba用户组
+oracle.install.db.OPER_GROUP=oinstall 		// oper用户组
+oracle.install.db.BACKUPDBA_GROUP=dba
+oracle.install.db.DGDBA_GROUP=dba
+oracle.install.db.KMDBA_GROUP=dba
+oracle.install.db.config.starterdb.type=GENERAL_PURPOSE //数据库类型
+oracle.install.db.config.starterdb.globalDBName=orcl 	//globalDBName
+oracle.install.db.config.starterdb.SID=orcl				//SID
+oracle.install.db.config.starterdb.memoryLimit=81920 	//自动管理内存的内存(M)
+oracle.install.db.config.starterdb.password.ALL=oracle  //设定所有数据库用户使用同一个密码
+SECURITY_UPDATES_VIA_MYORACLESUPPORT=false         		//（手动写了false）
+DECLINE_SECURITY_UPDATES=true 　　						//设置安全更新
+
+ 
+
+开始安装
+
+ [oracle@oracle01 ~]$./runInstaller -silent -responseFile /home/oracle/etc/db_install.rsp
+ [oracle@oracle01 ~]$tail -f -n 10 /u01/app/oraInventory/logs/silentInstall2018-02-06_02-39-59AM.log
+出现类似如下提示表示安装完成：
+------------------------------------------------------------------------
+The following configuration scripts need to be executed as the "root" user. 
+#!/bin/sh 
+#Root scripts to run
+
+/u01/app/oraInventory/orainstRoot.sh
+/u01/app/oracle/product/12/db_1/root.sh
+To execute the configuration scripts:
+1. Open a terminal window 
+2. Log in as "root" 
+3. Run the scripts 
+4. Return to this window and hit "Enter" key to continue
+
+Successfully Setup Software.
+
+按照提示执行相关脚本
+[oracle@oracle01 ~]$su - root
+[root@oracle01 ~]#/u01/app/oraInventory/orainstRoot.sh
+[root@oracle01 ~]#/u01/app/oracle/product/12/db_1/root.sh
+
+
+修改oracle环境变量
+
+su  - oracle
+vim ~/.bash_profile
+#for oracle
+export ORACLE_BASE=/u01/app/oracle
+export ORACLE_SID=orcl
+export ROACLE_PID=oral12
+#export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
+export LD_LIBRARY_PATH=$ORACLE_HOME/lib:/usr/lib
+export ORACLE_HOME=/u01/app/oracle/product/12/db_1
+export PATH=$PATH:$ORACLE_HOME/bin
+
+export LANG="zh_CN.UTF-8"
+export NLS_LANG="SIMPLIFIED CHINESE_CHINA.AL32UTF8"
+export NLS_DATE_FORMAT='yyyy-mm-dd hh24:mi:ss'
+
+配置监听程序
+
+
+[oracle@oracle01 ~]#netca /silent /responsefile /home/oracle/etc/netca.rsp
+
+Parsing command line arguments:
+Parameter "silent" = true
+Parameter "responsefile" = /home/oracle/etc/netca.rsp
+Done parsing command line arguments.
+Oracle Net Services Configuration:
+Profile configuration complete.
+Oracle Net Listener Startup:
+Running Listener Control: 
+/u01/app/oracle/product/12/db_1/bin/lsnrctl start LISTENER
+Listener Control complete.
+Listener started successfully.
+Listener configuration complete.
+Oracle Net Services configuration successful. The exit code is 0
+
+启动监听程序
+
+[oracle@oracle01 ~]$ lsnrctl start
+
+LSNRCTL for Linux: Version 12.1.0.2.0 - Production on 06-2月 -2018 04:06:17
+
+Copyright (c) 1991, 2014, Oracle.  All rights reserved.
+
+启动/u01/app/oracle/product/12/db_1/bin/tnslsnr: 请稍候...
+
+TNSLSNR for Linux: Version 12.1.0.2.0 - Production
+系统参数文件为/u01/app/oracle/product/12/db_1/network/admin/listener.ora
+写入/u01/app/oarcle/diag/tnslsnr/oracle01/listener/alert/log.xml的日志信息
+监听: (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=oracle01.cn)(PORT=1521)))
+监听: (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+
+正在连接到 (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=oracle01.cn)(PORT=1521)))
+LISTENER 的 STATUS
+------------------------
+别名                      LISTENER
+版本                      TNSLSNR for Linux: Version 12.1.0.2.0 - Production
+启动日期                  06-2月 -2018 04:06:19
+正常运行时间              0 天 0 小时 0 分 0 秒
+跟踪级别                  off
+安全性                    ON: Local OS Authentication
+SNMP                      OFF
+监听程序参数文件          /u01/app/oracle/product/12/db_1/network/admin/listener.ora
+监听程序日志文件          /u01/app/oarcle/diag/tnslsnr/oracle01/listener/alert/log.xml
+监听端点概要...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=oracle01.cn)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+监听程序不支持服务
+命令执行成功
+
+
+静默建库
+
+[oracle@oracle01 ~]$ vim etc/dbca.rsp
+[GENERAL]
+RESPONSEFILE_VERSION = "12.1.0"
+OPERATION_TYPE = "createDatabase"
+[CREATEDATABASE]
+GDBNAME = "orcl.oracle01"   # 格式: <db_name.domain_name> 或 没有域名的情况下 <db_name>
+SID = "dbsrv2"
+TEMPLATENAME = "General_Purpose.dbc"
+CHARACTERSET = "AL32UTF8"
+
+验证一下参数值: cat etc/dbca.rsp | grep -Ev '^#|^$'
+执行建库
+
+[oracle@oracle01 ~]$ dbca -silent -responseFile etc/dbca.rsp
+
+Enter SYS user password: 【输入:oracle】
+  
+Enter SYSTEM user password: 【输入:oracle】
+ 
+sh: /bin/ksh: No such file or directory
+sh: /bin/ksh: No such file or directory
+Copying database files
+1% complete
+3% complete
+11% complete
+18% complete
+26% complete
+37% complete
+Creating and starting Oracle instance
+40% complete
+45% complete
+50% complete
+55% complete
+56% complete
+57% complete
+60% complete
+62% complete
+Completing Database Creation
+66% complete
+70% complete
+73% complete
+74% complete
+85% complete
+96% complete
+100% complete
+
+安装至此完成。
+
+建库后进⾏实例进程检查：
+[oracle@oracle01~]$ ps -ef | grep ora_ | grep -v grep
+查看监听状态：
+[oracle@oracle01~]$ lsnrctl status
+登录查看实例状态：
+[oracle@oracle01~]$ sqlplus / as sysdba
+SQL> select status from v$instance;
+
+------------------------------------------- 连接 -------------------------------------------
+conn sys as sysdba
+
+
+------------------------------------------- 登录不了 -------------------------------------------
+https://blog.csdn.net/Alan1921/article/details/100146505
+oracle 11g r2 的版本 必须在 $ORACLE_HOME/dbs目录下 ，可以 通过cd $ORACLE_HOME/dbs 进入该目录
+
+[oracle@centos-7_3 dbs]$ ll | grep orapw
+-rw-r-----. 1 oracle oinstall 5120 Aug  7 19:35 orapworcl
+-rw-r-----. 1 oracle oinstall 1536 Aug  5 23:59 orapwsrsttest
+[oracle@centos-7_3 dbs]$ 
+[oracle@centos-7_3 dbs]$ ps -ef | grep pmon
+oracle    2251     1  0 13:53 ?        00:00:02 ora_pmon_ora81
+oracle    6339  2631  0 21:03 pts/2    00:00:00 grep --color=auto pmon
+[oracle@centos-7_3 dbs]$ 
+grep pmon 查到oracle sid 为 orcl;
+
+[oracle@centos-7_3 dbs]$ orapwd file=orapwora81 entries=30
+
+Enter password for SYS: 
+[oracle@centos-7_3 dbs]$ ll | grep orapw
+-rw-r-----. 1 oracle oinstall 5120 Aug 29 21:04 orapwora81
+-rw-r-----. 1 oracle oinstall 5120 Aug  7 19:35 orapworcl
+-rw-r-----. 1 oracle oinstall 1536 Aug  5 23:59 orapwsrsttest
+[oracle@centos-7_3 dbs]$ 
+file=orapwora81, 格式为 orapw+ oracle sid;
+
+------------------------------------------- ora 启动问题  -------------------------------------------
+启动Oracle时提示：ORA-01078:failure in processing system parameters (2013-03-21 15:03:09)转载▼
+标签： it	
+一、使用环境
+操作系统：OEL 6.3 x64
+数据库：Oracle 11.2.0.1.0
+数据库主目录：/u01/app/oracle/product/10.2.0/
+
+二、问题描述
+用sys用户登录sqlplus后，用startup命令启动Oracle时提示：
+ORA-01078:failure in processing system parameters
+LRM-00109: could not open parameter file ‘/u01/app/oracle/product/11.2.0/db_1/dbs/initorcl.ora’
+
+三、错误原因
+在oracle9i、10g、11g最近几个版本中，数据库默认使用spfile启动数据库，如果spfile不存在，则就会出现上述错误。
+
+四、解决方法
+方法一：
+用find /u01 -name pfile命令查找pfile文件的位置，/u01/app/oracle/admin/orcl/pfile/
+将ORACLEBASE/admin/orcl/pfile目录下的init.ora.2212013132036形式的文件copy到 ORACLE_BASE/admin/orcl/pfile目录下的init.ora.2212013132036形式的文件copy 到ORACLE 
+B
+​	
+ ASE/admin/orcl/pfile目录下的init.ora.2212013132036形式的文件copy到ORACLE_HOME/dbs目录下命名为initorcl.ora即可。
+（注：initorcl.ora中的orcl为你的实例名 ORACLE_SID，这里我的SID为：center）
+
+方法二：
+将$ORACLE_HOME/dbs目录下spflieorcl.ora改名为spfilecenter.ora即可。（注：spfilecenter.ora中的center为环境变量中设置的SID，我的是center）
+
+
+
+------------------------------------------- 12c 启动异常 -------------------------------------------
+
+SQL> startup;
+ORA-00845: MEMORY_TARGET not supported on this system
+
+找到错误原因是MEMORY_MAX_TARGET 的设置不能超过 /dev/shm 的大小，我们来看一下解决步骤：【注意：要用root用户才能有权限挂载分区】
+
+[oracle@ocp dbs]$ df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda3        95G   21G   70G  23% /
+tmpfs           932M  265M  667M  29% /dev/shm
+/dev/sda1       194M   34M  151M  19% /boot
+/dev/sr0        3.6G  3.6G     0 100% /media/RHEL_6.5 x86_64 Disc 1
+ 
+[oracle@ocp dbs]$ cat /etc/fstab | grep tmpfs
+tmpfs                   /dev/shm                tmpfs   defaults        0 0
+可以看出/dev/shm分区确实有点小，我们给它加大就可以了，现在可以通过重启使这个配置生效，也可以通过重新挂载来修改其大小：
+
+[root@ocp ~]# mount -o remount,size=2G /dev/shm/
+[root@ocp ~]# df -h | grep shm
+tmpfs           2.0G  271M  1.8G  14% /dev/shm
+
+
+
+
+-----------------------------------------------最后，数据库启动设置-----------------------------------------------
+1.修改$ORACLE_HOME/bin/dbstart
+将ORACLE_HOME_LISTNER=$1修改为ORACLE_HOME_LISTNER=$ORACLE_HOME
+
+2.修改$ORACLE_HOME/bin/dbshut
+将ORACLE_HOME_LISTNER=$1修改为ORACLE_HOME_LISTNER=$ORACLE_HOME
+
+3.修改/etc/oratab文件
+将silent:/u01/app/oracle/product/11.2.0/db_1:N中最后的N改为Y，
+成为silent:/u01/app/oracle/product/11.2.0/db_1:Y
+
+4.敲入命令dbshut和dbstart测试
